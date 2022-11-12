@@ -17,9 +17,12 @@ int current_color[color_data_size];
 int animation_mode = 0;
 bool run_animation = false;
 int animation_step = 0;
-unsigned long animation_1_last_time = 0;
+unsigned long animation_last_time = 0;
+unsigned long animation_step_delay = 500;
+int animation_direction = -1;
 unsigned long alive_timer = 0;
 
+#pragma region basic
 void setup()
 {
   Serial.begin(9600);
@@ -34,14 +37,16 @@ void setup()
 
 void loop()
 {
-  // Send alive signal
-  tick_alive_timer();
   // Process incoming serial color_data if available
   reader();
   // Do selected animation with selected color
   do_animation();
+  // Send alive signal
+  tick_alive_timer();
 }
+#pragma endregion
 
+#pragma region steps
 void do_animation()
 {
   if (run_animation)
@@ -49,23 +54,16 @@ void do_animation()
     switch (animation_mode)
     {
     case 0:
-      ANIMATION_0();
+      ANIMATION_0(); // Homogen
       break;
     case 1:
-      ANIMATION_1();
+      ANIMATION_1(); // FlashWithInverted
+      break;
+    case 2:
+      ANIMATION_2(); // Breathing
       break;
     }
   }
-}
-
-void reset_states()
-{
-  run_animation = false;
-  animation_1_last_time = 0;
-  animation_step = 0;
-  current_color[0] = 0;
-  current_color[1] = 0;
-  current_color[2] = 0;
 }
 
 void reader()
@@ -89,13 +87,16 @@ void reader()
       run_animation = true;
       break;
     case 2:
-      reset_states();
+      RESET_STATES();
       run_animation = true;
       animation_mode = tmp[0];
       break;
     case 3:
-      reset_states();
+      RESET_STATES();
       SET_ALL_TO(0, 0, 0);
+      FastLED.show();
+      break;
+    case 4:
       FastLED.show();
       break;
     }
@@ -113,6 +114,19 @@ void tick_alive_timer()
     alive_timer = millis();
   }
 }
+#pragma endregion
+
+void RESET_STATES()
+{
+  run_animation = false;
+  animation_last_time = 0;
+  animation_step = 0;
+  current_color[0] = 0;
+  current_color[1] = 0;
+  current_color[2] = 0;
+  SET_ALL_TO(color_data[0], color_data[1], color_data[2]);
+  FastLED.setBrightness(BRIGHTNESS);
+}
 
 int READ_DATA()
 {
@@ -123,17 +137,20 @@ int READ_DATA()
   Serial.readBytes(buffer, 1);
   switch (buffer[0])
   {
-  case 'C':
+  case 'C': // Color
     type = 0;
     break;
-  case 'B':
+  case 'B': // Brightness
     type = 1;
     break;
-  case 'A':
+  case 'A': // Animation
     type = 2;
     break;
-  case 'R':
+  case 'R': // Reset
     type = 3;
+    break;
+  case 'S': // Show
+    type = 4;
     break;
   default:
     return -1;
@@ -175,6 +192,38 @@ int READ_DATA()
   return type;
 }
 
+void INT_TO_HEX(char *tmp, int incoming)
+{
+  tmp[0] = incoming / 16 + '0';
+  tmp[1] = incoming % 16 + '0';
+  for (int i = 0; i < 2; i++)
+  {
+    if (tmp[i] > '9')
+    {
+      tmp[i] += 39;
+    }
+  }
+}
+
+void LOG_DATA()
+{
+  // C;##;##;##;
+  char Log[12];
+  Log[0] = 'C';
+  Log[1] = ';';
+  for (int i = 0; i < color_data_size; i++)
+  {
+    char tmp[2] = {0, 0};
+    INT_TO_HEX(tmp, color_data[i]);
+    Log[-1 + 3 * (i + 1)] = tmp[0];
+    Log[0 + 3 * (i + 1)] = tmp[1];
+    Log[1 + 3 * (i + 1)] = ';';
+  }
+  Log[11] = 0;
+  Serial.println(Log);
+  alive_timer = millis();
+}
+
 void SET_ALL_TO(char R, char G, char B)
 {
   for (int i = 0; i < LED_COUNT; i++)
@@ -183,6 +232,7 @@ void SET_ALL_TO(char R, char G, char B)
   }
 }
 
+#pragma region animations
 void ANIMATION_0()
 {
   bool different = false;
@@ -203,7 +253,7 @@ void ANIMATION_0()
 
 void ANIMATION_1()
 {
-  if (millis() - animation_1_last_time >= 500)
+  if (millis() - animation_last_time >= animation_step_delay)
   {
     char R = color_data[0];
     char G = color_data[1];
@@ -228,38 +278,32 @@ void ANIMATION_1()
     {
       animation_step++;
     }
-    animation_1_last_time = millis();
+    animation_last_time = millis();
   }
 }
 
-void INT_TO_HEX(char *tmp, int incoming)
+void ANIMATION_2()
 {
-  tmp[0] = incoming / 16 + '0';
-  tmp[1] = incoming % 16 + '0';
-  for (int i = 0; i < 2; i++)
+  int current_brightness = FastLED.getBrightness();
+
+  if (current_brightness > 80)
   {
-    if (tmp[i] > '9')
+    FastLED.setBrightness(80);
+    current_brightness = 80;
+  }
+
+  if (millis() - animation_last_time >= animation_step_delay / 5)
+  {
+    if (current_brightness + animation_direction <= 0 || current_brightness + animation_direction > 80)
     {
-      tmp[i] += 39;
+      animation_direction *= -1;
     }
+
+    FastLED.setBrightness(current_brightness + animation_direction);
+    FastLED.show();
+
+    animation_last_time = millis();
   }
 }
 
-void LOG_DATA()
-{
-  // R;XX;G;XX;B;XX;
-  char Log[16];
-  char chars[4] = {'R', 'G', 'B'};
-  for (int i = 0; i < color_data_size; i++)
-  {
-    char tmp[2] = {0, 0};
-    INT_TO_HEX(tmp, color_data[i]);
-    Log[0 + 5 * i] = chars[i];
-    Log[1 + 5 * i] = ';';
-    Log[2 + 5 * i] = tmp[0];
-    Log[3 + 5 * i] = tmp[1];
-    Log[4 + 5 * i] = ';';
-  }
-  Log[15] = 0;
-  Serial.println(Log);
-}
+#pragma endregion
