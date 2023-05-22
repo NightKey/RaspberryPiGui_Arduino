@@ -1,8 +1,9 @@
 #include <Arduino.h>
 #include <FastLED.h>
 
-#define DATA 6             // DATA PIN
-#define LED_COUNT 100      // LED COUNT ON THE STRIP [0..9]
+#define THUB 8             // DATA PIN FOR THUB
+#define CABINET 7          // DATA PIN FOR CABINET
+#define LED_COUNT 100      // LED COUNT ON THE STRIP/3
 #define CHIPSET WS2811     // LED DRIVER CHIPSET
 #define COLOR_SEQUENCE BRG // SEQUENCE OF COLORS IN DATA STREAM
 #define FPS 100            // UPDATES PER SECOND
@@ -27,12 +28,14 @@ void setup()
 {
   Serial.begin(9600);
   // LED SETUP
-  FastLED.addLeds<CHIPSET, DATA, COLOR_SEQUENCE>(LEDs, LED_COUNT);
+  FastLED.addLeds<CHIPSET, THUB, COLOR_SEQUENCE>(LEDs, LED_COUNT);
+  FastLED.addLeds<CHIPSET, CABINET, COLOR_SEQUENCE>(LEDs, LED_COUNT);
   randomSeed(analogRead(0));
   FastLED.setBrightness(BRIGHTNESS);
   FastLED.setMaxPowerInVoltsAndMilliamps(5, 500);
   FastLED.clear();
   FastLED.show();
+  pinMode(LED_BUILTIN, OUTPUT);
 }
 
 void loop()
@@ -106,6 +109,14 @@ void reader()
   }
 }
 
+void tick_buit_in_led()
+{
+  digitalWrite(LED_BUILTIN, HIGH);
+  delay(50);
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(50);
+}
+
 void tick_alive_timer()
 {
   if (millis() - alive_timer >= 500)
@@ -157,6 +168,10 @@ int READ_DATA()
     break;
   }
   Serial.readBytes(buffer, 1);
+  for (int i = 5; i > type; i--)
+  {
+    tick_buit_in_led();
+  }
   while (Serial.available() != 0)
   {
     Serial.readBytes(buffer, 1);
