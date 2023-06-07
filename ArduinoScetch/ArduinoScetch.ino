@@ -40,6 +40,7 @@ void setup()
 
 void loop()
 {
+  tick_buit_in_led();
   // Process incoming serial color_data if available
   reader();
   // Do selected animation with selected color
